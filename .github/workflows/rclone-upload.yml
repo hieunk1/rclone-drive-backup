@@ -20,7 +20,7 @@ jobs:
   rclone-upload:
     runs-on: ubuntu-latest
     env:
-      RCLONE_CONFIG_PATH: ${{ runner.temp }}/rclone.conf   # dùng file config tạm trong runner.temp
+      RCLONE_CONFIG_PATH: /tmp/rclone.conf   # dùng file config tạm trong /tmp
     steps:
       - name: Checkout (optional, if you upload files from repo)
         uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
         run: |
           # create directory for rclone config (some rclone versions look in ~/.config/rclone)
           mkdir -p ~/.config/rclone
-          # write secret value to both ~/.config/rclone/rclone.conf and to runner.temp file referenced by env (optional)
+          # write secret value to both ~/.config/rclone/rclone.conf and to /tmp file referenced by env
           printf '%s\n' "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
           printf '%s\n' "${{ secrets.RCLONE_CONFIG }}" > "${RCLONE_CONFIG_PATH}"
           chmod 600 ~/.config/rclone/rclone.conf
