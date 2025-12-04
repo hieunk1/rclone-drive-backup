@@ -1,4 +1,4 @@
-name: Upload to Google Drive
+name: Rclone Upload
 
 on:
   workflow_dispatch:
@@ -8,31 +8,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - name: Install rclone
-      run: |
-        curl https://rclone.org/install.sh | sudo bash
+      - name: Create service account JSON file
+        run: |
+          echo "${{ secrets.GDRIVE_SA_JSON }}" > sa.json
 
-    - name: Write SA JSON
-      run: |
-        printf '%s' "${{ secrets.SA_JSON }}" > sa.json
-
-    - name: Create rclone.conf
-      run: |
-        mkdir -p ~/.config/rclone
-        cat <<EOF > ~/.config/rclone/rclone.conf
+      - name: Create rclone.conf
+        run: |
+          mkdir -p ~/.config/rclone
+          cat <<EOF > ~/.config/rclone/rclone.conf
 [gdrive_sa]
 type = drive
 scope = drive
 service_account_file = /home/runner/sa.json
 EOF
 
-    - name: Test rclone
-      run: |
-        rclone ls gdrive_sa: || (cat ~/.config/rclone/rclone.conf && cat sa.json && exit 1)
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
 
-    - name: Upload
-      run: |
-        rclone copy to_upload gdrive_sa:backups -P
+      - name: Test rclone config
+        run: |
+          rclone ls gdrive_sa: || (echo "❌ rclone config failed"; cat ~/.config/rclone/rclone.conf; exit 1)
+
+      - name: Upload folder
+        run: |
+          rclone copy to_upload gdrive_sa:backups -vv
