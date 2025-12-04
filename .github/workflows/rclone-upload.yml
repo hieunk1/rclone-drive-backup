@@ -22,8 +22,10 @@ jobs:
     env:
       RCLONE_CONFIG_PATH: /tmp/rclone.conf   # dùng file config tạm trong /tmp
     steps:
-      - name: Checkout (optional, if you upload files from repo)
+      - name: Checkout full repository
         uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
 
       - name: Show input parameters
         run: |
