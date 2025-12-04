@@ -25,14 +25,11 @@ scope = drive
 service_account_file = /home/runner/sa.json
 EOF
 
-      - name: Install rclone
+      - name: Test rclone configuration
         run: |
-          curl https://rclone.org/install.sh | sudo bash
+          rclone --config ~/.config/rclone/rclone.conf ls gdrive_sa: || \
+          (echo "------ CONFIG FILE ------"; cat ~/.config/rclone/rclone.conf; exit 1)
 
-      - name: Test rclone config
+      - name: Upload folder to Google Drive
         run: |
-          rclone ls gdrive_sa: || (echo "❌ rclone config failed"; cat ~/.config/rclone/rclone.conf; exit 1)
-
-      - name: Upload folder
-        run: |
-          rclone copy to_upload gdrive_sa:backups -vv
+          rclone --config ~/.config/rclone/rclone.conf copy to_upload gdrive_sa:backups -v
