@@ -1,93 +1,84 @@
 name: rclone upload to Google Drive
 
-# Trigger: thủ công và theo lịch
 on:
-  workflow_dispatch:         # cho phép bấm Run workflow từ UI
+  workflow_dispatch:
     inputs:
       local_path:
-        description: 'Local path in the runner to upload (relative to workspace)'
+        description: "Local folder to upload"
         required: true
-        default: 'outputs'
+        default: "to_upload"
       remote_path:
-        description: 'Remote path on Google Drive (remote_name:path). Example: gdrive_sa:/backups'
+        description: "Remote path on Google Drive"
         required: true
-        default: 'gdrive_sa:backups'
+        default: "gdrive_sa:backups"
+
   schedule:
-    # CRON chạy theo UTC. Ví dụ dưới: mỗi ngày lúc 00:30 UTC.
-    - cron: '30 0 * * *'
+    - cron: "30 0 * * *"
 
 jobs:
   rclone-upload:
     runs-on: ubuntu-latest
     env:
-      RCLONE_CONFIG_PATH: /tmp/rclone.conf   # dùng file config tạm trong /tmp
+      RCLONE_CONFIG_PATH: /tmp/rclone.conf
+
     steps:
+
       - name: Checkout full repository
         uses: actions/checkout@v4
         with:
-            fetch-depth: 0
+          fetch-depth: 0
 
       - name: Show input parameters
         run: |
           echo "local_path=${{ github.event.inputs.local_path || 'to_upload' }}"
           echo "remote_path=${{ github.event.inputs.remote_path || 'gdrive_sa:backups' }}"
 
-      - name: Restore rclone.conf from secret
+      - name: Restore rclone.conf from secrets
         run: |
-          # create directory for rclone config (some rclone versions look in ~/.config/rclone)
           mkdir -p ~/.config/rclone
-          # write secret value to both ~/.config/rclone/rclone.conf and to /tmp file referenced by env
           printf '%s\n' "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
           printf '%s\n' "${{ secrets.RCLONE_CONFIG }}" > "${RCLONE_CONFIG_PATH}"
           chmod 600 ~/.config/rclone/rclone.conf
           chmod 600 "${RCLONE_CONFIG_PATH}"
-        # Don't ever echo the secret into logs.
 
-      - name: Restore service account JSON from secret
+      - name: Restore service account JSON
         run: |
-          # Write the SA JSON to /tmp/gdrive-sa.json so rclone can read it
           printf '%s\n' "${{ secrets.GDRIVE_SA_JSON }}" > /tmp/gdrive-sa.json
           chmod 600 /tmp/gdrive-sa.json
 
       - name: Install rclone
         run: |
-          # install script from rclone official site
           curl https://rclone.org/install.sh | sudo bash
           rclone --version
 
-      - name: Verify rclone remote is present
+      - name: Verify rclone remote
         run: |
-          echo "rclone config file used:"
           rclone config file
-          echo "List remotes:"
           rclone listremotes
-          echo "Show remote (sanity check, will not print secrets):"
           rclone lsd gdrive_sa: || true
 
       - name: Upload files with rclone (copy)
         run: |
-          # inputs (use defaults if not provided)
           LOCAL_PATH="${{ github.event.inputs.local_path || 'to_upload' }}"
           REMOTE_PATH="${{ github.event.inputs.remote_path || 'gdrive_sa:backups' }}"
 
           echo "Uploading ${LOCAL_PATH} -> ${REMOTE_PATH} ..."
-          # If directory does not exist, fail early
+
           if [ ! -e "${LOCAL_PATH}" ]; then
-            echo "ERROR: Local path '${LOCAL_PATH}' does not exist in workspace $(pwd)"
+            echo "ERROR: Local path '${LOCAL_PATH}' does not exist!"
             ls -la
             exit 1
           fi
 
-          # Use --config to force rclone to read the config file we restored
-          rclone --config "${RCLONE_CONFIG_PATH}" copy "${LOCAL_PATH}" "${REMOTE_PATH}" --progress --create-dirs --transfers=4 --checkers=8 --drive-chunk-size=64M
-        env:
-          # ensure rclone picks correct config file
-          RCLONE_CONFIG: "${{ secrets.RCLONE_CONFIG }}"
+          # KHÔNG dùng --create-dirs (KHÔNG tồn tại)
+          rclone --config "${RCLONE_CONFIG_PATH}" copy \
+              "${LOCAL_PATH}" "${REMOTE_PATH}" \
+              --progress --transfers=4 --checkers=8 --drive-chunk-size=64M
 
-      - name: Cleanup service account JSON
+      - name: Cleanup SA JSON
         if: always()
         run: |
-          shred -u /tmp/gdrive-sa.json >/dev/null 2>&1 || rm -f /tmp/gdrive-sa.json
+          rm -f /tmp/gdrive-sa.json
 
       - name: Finish
         run: echo "rclone upload job finished."
