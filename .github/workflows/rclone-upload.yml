@@ -8,27 +8,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v3
 
     - name: Install rclone
       run: |
         curl https://rclone.org/install.sh | sudo bash
 
-    - name: Create rclone config
+    - name: Write SA JSON
+      run: |
+        printf '%s' "${{ secrets.SA_JSON }}" > sa.json
+
+    - name: Create rclone.conf
       run: |
         mkdir -p ~/.config/rclone
-        echo "[gdrive_sa]" > ~/.config/rclone/rclone.conf
-        echo "type = drive" >> ~/.config/rclone/rclone.conf
-        echo "scope = drive" >> ~/.config/rclone/rclone.conf
-        echo "service_account_file = /home/runner/sa.json" >> ~/.config/rclone/rclone.conf
+        cat <<EOF > ~/.config/rclone/rclone.conf
+[gdrive_sa]
+type = drive
+scope = drive
+service_account_file = /home/runner/sa.json
+EOF
 
-        # Tạo file JSON cho SA
-        echo "${{ secrets.GDRIVE_SA_JSON }}" > /home/runner/sa.json
-
-    - name: Test connection
+    - name: Test rclone
       run: |
-        rclone ls gdrive_sa: || { cat ~/.config/rclone/rclone.conf; exit 1; }
+        rclone ls gdrive_sa: || (cat ~/.config/rclone/rclone.conf && cat sa.json && exit 1)
 
-    - name: Upload to Google Drive
+    - name: Upload
       run: |
+        rclone copy to_upload gdrive_sa:backups -P
