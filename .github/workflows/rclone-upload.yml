@@ -1,84 +1,32 @@
-name: rclone upload to Google Drive
+name: Upload to Google Drive
 
 on:
   workflow_dispatch:
-    inputs:
-      local_path:
-        description: "Local folder to upload"
-        required: true
-        default: "to_upload"
-      remote_path:
-        description: "Remote path on Google Drive"
-        required: true
-        default: "gdrive_sa:backups"
-
-  schedule:
-    - cron: "30 0 * * *"
 
 jobs:
-  rclone-upload:
+  upload:
     runs-on: ubuntu-latest
-    env:
-      RCLONE_CONFIG_PATH: /tmp/rclone.conf
-
+    
     steps:
+    - name: Checkout
+      uses: actions/checkout@v3
 
-      - name: Checkout full repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Install rclone
+      run: sudo apt-get install -y rclone
 
-      - name: Show input parameters
-        run: |
-          echo "local_path=${{ github.event.inputs.local_path || 'to_upload' }}"
-          echo "remote_path=${{ github.event.inputs.remote_path || 'gdrive_sa:backups' }}"
+    - name: Create rclone.conf using SA JSON
+      run: |
+        mkdir -p ~/.config/rclone/
+        echo "[gdrive_sa]" > ~/.config/rclone/rclone.conf
+        echo "type = drive" >> ~/.config/rclone/rclone.conf
+        echo "scope = drive" >> ~/.config/rclone/rclone.conf
+        echo "service_account_credentials = ${GDRIVE_SA_JSON}" >> ~/.config/rclone/rclone.conf
+        echo "root_folder_id =" >> ~/.config/rclone/rclone.conf
+      env:
+        GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
 
-      - name: Restore rclone.conf from secrets
-        run: |
-          mkdir -p ~/.config/rclone
-          printf '%s\n' "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
-          printf '%s\n' "${{ secrets.RCLONE_CONFIG }}" > "${RCLONE_CONFIG_PATH}"
-          chmod 600 ~/.config/rclone/rclone.conf
-          chmod 600 "${RCLONE_CONFIG_PATH}"
+    - name: Test rclone remote
+      run: rclone ls gdrive_sa: || (cat ~/.config/rclone/rclone.conf && exit 1)
 
-      - name: Restore service account JSON
-        run: |
-          printf '%s\n' "${{ secrets.GDRIVE_SA_JSON }}" > /tmp/gdrive-sa.json
-          chmod 600 /tmp/gdrive-sa.json
-
-      - name: Install rclone
-        run: |
-          curl https://rclone.org/install.sh | sudo bash
-          rclone --version
-
-      - name: Verify rclone remote
-        run: |
-          rclone config file
-          rclone listremotes
-          rclone lsd gdrive_sa: || true
-
-      - name: Upload files with rclone (copy)
-        run: |
-          LOCAL_PATH="${{ github.event.inputs.local_path || 'to_upload' }}"
-          REMOTE_PATH="${{ github.event.inputs.remote_path || 'gdrive_sa:backups' }}"
-
-          echo "Uploading ${LOCAL_PATH} -> ${REMOTE_PATH} ..."
-
-          if [ ! -e "${LOCAL_PATH}" ]; then
-            echo "ERROR: Local path '${LOCAL_PATH}' does not exist!"
-            ls -la
-            exit 1
-          fi
-
-          # KHÔNG dùng --create-dirs (KHÔNG tồn tại)
-          rclone --config "${RCLONE_CONFIG_PATH}" copy \
-              "${LOCAL_PATH}" "${REMOTE_PATH}" \
-              --progress --transfers=4 --checkers=8 --drive-chunk-size=64M
-
-      - name: Cleanup SA JSON
-        if: always()
-        run: |
-          rm -f /tmp/gdrive-sa.json
-
-      - name: Finish
-        run: echo "rclone upload job finished."
+    - name: Upload folder to Google Drive
+      run: rclone copy to_upload gdrive_sa:backups --progress
