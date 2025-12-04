@@ -1,35 +1,98 @@
-name: Rclone Upload
+name: Rclone Upload to Google Drive
 
 on:
   workflow_dispatch:
+    inputs:
+      local_path:
+        description: 'Local path in the runner to upload (relative to workspace)'
+        required: true
+        default: 'to_upload'
+      remote_path:
+        description: 'Remote path on Google Drive (remote_name:path). Example: gdrive_sa:backups'
+        required: true
+        default: 'gdrive_sa:backups'
+  schedule:
+    - cron: '30 0 * * *' # every day 00:30 UTC
 
 jobs:
   upload:
     runs-on: ubuntu-latest
+    env:
+      RCLONE_CONFIG_PATH: /tmp/rclone.conf
 
     steps:
-      - name: Checkout repo
+      - name: Checkout full repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Create service account JSON file
+      - name: Show input parameters
         run: |
-          echo "${{ secrets.GDRIVE_SA_JSON }}" > sa.json
+          echo "local_path=${{ github.event.inputs.local_path || 'to_upload' }}"
+          echo "remote_path=${{ github.event.inputs.remote_path || 'gdrive_sa:backups' }}"
 
-      - name: Create rclone.conf
+      - name: Create service account JSON file (from secret)
+        if: ${{ secrets.GDRIVE_SA_JSON != '' }}
+        run: |
+          # write SA JSON to /home/runner/sa.json (rclone will reference this)
+          printf '%s\n' "${{ secrets.GDRIVE_SA_JSON }}" > /home/runner/sa.json
+          chmod 600 /home/runner/sa.json
+
+      - name: Create rclone.conf (pointing to service account file)
         run: |
           mkdir -p ~/.config/rclone
-          cat <<EOF > ~/.config/rclone/rclone.conf
+          cat > ~/.config/rclone/rclone.conf <<'EOF'
 [gdrive_sa]
 type = drive
 scope = drive
 service_account_file = /home/runner/sa.json
 EOF
+          # also create a copy in $RCLONE_CONFIG_PATH for --config usage
+          cp ~/.config/rclone/rclone.conf "${RCLONE_CONFIG_PATH}"
+          chmod 600 ~/.config/rclone/rclone.conf "${RCLONE_CONFIG_PATH}"
 
-      - name: Test rclone configuration
+      - name: Install rclone
         run: |
-          rclone --config ~/.config/rclone/rclone.conf ls gdrive_sa: || \
-          (echo "------ CONFIG FILE ------"; cat ~/.config/rclone/rclone.conf; exit 1)
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          rclone --version
 
-      - name: Upload folder to Google Drive
+      - name: Debug workspace (list files)
         run: |
-          rclone --config ~/.config/rclone/rclone.conf copy to_upload gdrive_sa:backups -v
+          echo "Workspace: $(pwd)"
+          ls -la
+          echo "Contents recursively:"
+          ls -R .
+
+      - name: Check rclone remotes (debug)
+        run: |
+          echo "rclone config file used (explicit): ${RCLONE_CONFIG_PATH}"
+          rclone --config "${RCLONE_CONFIG_PATH}" config file || true
+          echo "List remotes (using explicit config):"
+          rclone --config "${RCLONE_CONFIG_PATH}" listremotes || true
+
+      - name: Upload files with rclone (copy)
+        env:
+          RCLONE_CONFIG: "${{ secrets.RCLONE_CONFIG }}"  # not printed, optional
+        run: |
+          LOCAL_PATH="${{ github.event.inputs.local_path || 'to_upload' }}"
+          REMOTE_PATH="${{ github.event.inputs.remote_path || 'gdrive_sa:backups' }}"
+
+          echo "Uploading ${LOCAL_PATH} -> ${REMOTE_PATH} ..."
+          if [ ! -e "${LOCAL_PATH}" ]; then
+            echo "ERROR: Local path '${LOCAL_PATH}' does not exist in workspace $(pwd)"
+            ls -la
+            exit 1
+          fi
+
+          # Use explicit config file; use valid flags (no --create-dirs)
+          rclone --config "${RCLONE_CONFIG_PATH}" copy "${LOCAL_PATH}" "${REMOTE_PATH}" --progress --create-empty-src-dirs --transfers=4 --checkers=8 --drive-chunk-size=64M
+        shell: bash
+
+      - name: Cleanup service account JSON
+        if: always()
+        run: |
+          # remove SA JSON from runner
+          shred -u /home/runner/sa.json >/dev/null 2>&1 || rm -f /home/runner/sa.json
+
+      - name: Finish
+        run: echo "rclone upload job finished."
