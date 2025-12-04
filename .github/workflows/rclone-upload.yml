@@ -7,7 +7,7 @@ on:
       local_path:
         description: 'Local path in the runner to upload (relative to workspace)'
         required: true
-        default: 'to_upload'
+        default: 'outputs'
       remote_path:
         description: 'Remote path on Google Drive (remote_name:path). Example: gdrive_sa:/backups'
         required: true
